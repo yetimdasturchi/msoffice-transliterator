@@ -15,11 +15,9 @@ transliterate_xlsx('fayl.xlsx', $alphabet);
 
 //Ms powerpoint
 transliterate_pptx('fayl.pptx', $alphabet);
-```
 
 //Epub
 transliterate_pptx('fayl.epub', $alphabet);
-```
 
 //HTML
 transliterate_html('fayl.html', $alphabet);
