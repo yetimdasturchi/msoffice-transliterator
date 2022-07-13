@@ -146,3 +146,97 @@ function transliterate_pptx($filename, $alp='lat') {
 
     return FALSE;
 }
+
+function translate_html($html, $alp='cyr', $xml=FALSE) {
+    $html = preg_replace('/<code>(.*)<\/code>/', "_____$1_____", $html);
+    libxml_use_internal_errors(true);
+    $dom = new DomDocument();
+    $dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'), LIBXML_HTML_NODEFDTD | LIBXML_NOEMPTYTAG);
+    
+    $xpath = new DOMXPath($dom);
+    $nodes = ['//text()', '//@title', '//@placeholder', '//@alt', '//@value'];
+    foreach ($nodes as $query) {
+        foreach ($xpath->query($query) as $text) {
+            if (trim($text->nodeValue)) {
+                preg_match_all('/_____(.*)_____/', $text->nodeValue, $match, PREG_SET_ORDER);
+                if (!empty($match)) {
+                    foreach ($match as $k => $v) {
+                        $text->nodeValue = str_replace($v[0], '{{'.strval($k).'}}', $text->nodeValue);
+                    }   
+                }
+                $text->nodeValue = ($alp == 'cyr') ? translate( $text->nodeValue ) : translate( $text->nodeValue );
+                if (!empty($match)) {
+                    foreach ($match as $k => $v) {
+                        $text->nodeValue = str_replace($v[0], '{{'.strval($k).'}}', $text->nodeValue);
+                    }   
+                }
+            }
+        }
+    }
+    $html = $xml ? $dom->saveXML() : $dom->saveHTML();
+    if ($xml) {
+        preg_match_all('/<\?xml(.*)>/', $html, $matches, PREG_SET_ORDER);
+        if (!empty($matches)) {
+            $html = preg_replace('/<\?xml(.*)>/', "", $html);
+            $html = $matches[0][0].$html;
+        }
+    }
+    return $html;
+}
+
+function transliterate_epub($filename, $alp='lat'){
+    $zip = new ZipArchive;
+    $content_file = 'content.opf';
+
+    if ($zip->open($filename) === TRUE) {
+        $content = $zip->getFromName($content_file);
+        $newcontent = html_entity_decode($content);
+        preg_match_all('/<.*?item.*?href="(.*\.x?html?)".*?\/>/', $newcontent, $items, PREG_SET_ORDER);
+        if (!empty($items)) {
+            foreach ($items as $item) {
+                $item_content = translate_html( html_entity_decode( $zip->getFromName( $item[1] ) ), $alp, TRUE );
+                $zip->deleteName($item[1]);
+                $zip->addFromString($item[1], $item_content);
+            }
+        }
+
+        $newcontent = preg_replace_callback('/<dc:creator.*?file-as="(.*?)".*?>(.*?)<\/dc:creator>/', function ($row) use($alp){
+            $row[0] = str_replace($row[1], ($alp == 'cyr') ? translate( $row[1] ) : translate( $row[1] ), $row[0]);
+            $row[0] = str_replace($row[2], ($alp == 'cyr') ? translate( $row[2] ) : translate( $row[2] ), $row[0]);
+
+            return $row[0];
+        }, $newcontent);
+
+        $newcontent = preg_replace_callback('/<dc:title.*?>(.*?)<\/dc:title>/', function ($row) use($alp){
+            $row[0] = str_replace($row[1], ($alp == 'cyr') ? translate( $row[1] ) : translate( $row[1] ), $row[0]);
+            return $row[0];
+        }, $newcontent);
+        $zip->deleteName($content_file);
+        $zip->addFromString($content_file, $newcontent);
+
+        $toc = simplexml_load_string( $zip->getFromName('toc.ncx') );
+        if (!empty($toc->docTitle->text)) {
+            $toc->docTitle->text = ($alp == 'cyr') ? translate( $toc->docTitle->text ) : translate( $toc->docTitle->text );
+        }
+        foreach ($toc->navMap->navPoint as $k => $navPoint) {
+            $navPoint->navLabel->text = ($alp == 'cyr') ? translate( $navPoint->navLabel->text ) : translate( $navPoint->navLabel->text );
+        };
+        $zip->deleteName('toc.ncx');
+        $zip->addFromString('toc.ncx', $toc->saveXML());
+
+        return $zip->close();
+    }
+
+    return FALSE;
+}
+
+function transliterate_html($filename, $alp='lat') {
+    if( file_exists($filename) ) {
+        $html = file_get_contents( $filename );
+        $html = translate_html($html, $alp);
+        file_put_contents($filename, $html);
+        return TRUE;
+    }
+    
+    return FALSE;
+}
